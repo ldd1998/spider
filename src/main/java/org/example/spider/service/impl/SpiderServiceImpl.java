@@ -1,9 +1,14 @@
 package org.example.spider.service.impl;
 
+import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.http.HttpUtil;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import lombok.extern.slf4j.Slf4j;
+import org.example.spider.entity.Content;
+import org.example.spider.mapper.ContentMapper;
 import org.example.spider.service.SpiderService;
-
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -11,21 +16,37 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 @Slf4j
+@Service
 public class SpiderServiceImpl implements SpiderService {
-    int count = 0;
+    @Autowired
+    ContentMapper contentMapper;
+
     @Override
     public void start() {
-        String startUrl = "https://cn.bing.com/search?q=%E7%88%AC%E8%99%AB";
-        String pageText = getPageText(startUrl);
-        String title = getTitle(pageText);
-        List<String> urls = getUrls(pageText);
-        String content = getContent(pageText);
-        log.info(title);
-        log.info(urls.toString());
-        log.info(content);
-        for (String url : urls) {
-            String pageText1 = getPageText(url);
-            log.info("{}count: {}", getTitle(pageText1), count++);
+        // https://cn.bing.com/search?q=%E7%88%AC%E8%99%AB
+        // 获取数据库中status为0的数据
+        List<Content> contents = contentMapper.selectList(new QueryWrapper<Content>().eq("status", 0).orderByAsc("id"));
+        if (CollectionUtil.isNotEmpty(contents)) {
+            for (Content content : contents) {
+                // 获取该页面信息
+                String url = content.getUrl();
+                String pageText = getPageText(url);
+                content.setTitle(getTitle(pageText));
+                content.setContent(getContent(pageText));
+                content.setStatus(1);
+                contentMapper.updateById(content);
+                // 保存该页面下urls
+                List<String> urls = getUrls(pageText);
+                log.info("当前第{}个页面，内容大小{}，获取到url数量{}", content.getId(),getContent(pageText).length(),urls.size());
+                if(CollectionUtil.isNotEmpty(urls)){
+                    for (String urlOne : urls) {
+                        Content contentEntity = new Content();
+                        contentEntity.setUrl(urlOne);
+                        contentEntity.setParentId(content.getId());
+                        contentMapper.insert(contentEntity);
+                    }
+                }
+            }
         }
     }
 
@@ -34,7 +55,7 @@ public class SpiderServiceImpl implements SpiderService {
         String res = "";
         try {
             res = HttpUtil.get(url);
-        }catch (Exception e){
+        } catch (Exception e) {
             log.info(e.getMessage());
         }
         return res;
