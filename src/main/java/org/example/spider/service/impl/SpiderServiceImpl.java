@@ -12,6 +12,10 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.LinkedBlockingDeque;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -20,32 +24,54 @@ import java.util.regex.Pattern;
 public class SpiderServiceImpl implements SpiderService {
     @Autowired
     ContentMapper contentMapper;
+    ThreadPoolExecutor threadPoolExecutor = new ThreadPoolExecutor(50, 500, 10, TimeUnit.HOURS, new LinkedBlockingDeque<>());
+    @Autowired
+    private ThreadPoolExecutor messageConsumeDynamicExecutor;
+    @Autowired
+private ThreadPoolExecutor messageProduceDynamicExecutor;
 
     @Override
     public void start() {
         // https://cn.bing.com/search?q=%E7%88%AC%E8%99%AB
         // 获取数据库中status为0的数据
-        List<Content> contents = contentMapper.selectList(new QueryWrapper<Content>().eq("status", 0).orderByAsc("id"));
+        List<Content> contents = contentMapper.selectList(new QueryWrapper<Content>().eq("status", 0).orderByAsc("id").last("limit 500"));
         if (CollectionUtil.isNotEmpty(contents)) {
+            CountDownLatch countDownLatch = new CountDownLatch(contents.size());
             for (Content content : contents) {
-                // 获取该页面信息
-                String url = content.getUrl();
-                String pageText = getPageText(url);
-                content.setTitle(getTitle(pageText));
-                content.setContent(getContent(pageText));
-                content.setStatus(1);
-                contentMapper.updateById(content);
-                // 保存该页面下urls
-                List<String> urls = getUrls(pageText);
-                log.info("当前第{}个页面，内容大小{}，获取到url数量{}", content.getId(),getContent(pageText).length(),urls.size());
-                if(CollectionUtil.isNotEmpty(urls)){
-                    for (String urlOne : urls) {
-                        Content contentEntity = new Content();
-                        contentEntity.setUrl(urlOne);
-                        contentEntity.setParentId(content.getId());
-                        contentMapper.insert(contentEntity);
+                messageProduceDynamicExecutor.execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        startOneContent(content);
+                        countDownLatch.countDown();
                     }
-                }
+                });
+            }
+            try {
+                countDownLatch.await();
+                log.info("执行完成："+contents.size());
+            } catch (InterruptedException e) {
+                throw new RuntimeException(e);
+            }
+        }
+    }
+
+    private void startOneContent(Content content) {
+        // 获取该页面信息
+        String url = content.getUrl();
+        String pageText = getPageText(url);
+        content.setTitle(getTitle(pageText));
+        content.setContent(getContent(pageText));
+        content.setStatus(1);
+        contentMapper.updateById(content);
+        // 保存该页面下urls
+        List<String> urls = getUrls(pageText);
+//        log.info("当前第{}个页面，内容大小{}，获取到url数量{}", content.getId(), getContent(pageText).length(), urls.size());
+        if (CollectionUtil.isNotEmpty(urls)) {
+            for (String urlOne : urls) {
+                Content contentEntity = new Content();
+                contentEntity.setUrl(urlOne);
+                contentEntity.setParentId(content.getId());
+                contentMapper.insert(contentEntity);
             }
         }
     }

@@ -8,3 +8,31 @@ spring:
     url: jdbc:mysql://192.168.1.107:3306/spider?useUnicode=true&characterEncoding=utf8&zeroDateTimeBehavior=convertToNull&useSSL=true&serverTimezone=GMT%2B8
     username: root
     password: liu15853087850
+  dynamic:
+    thread-pool:
+      monitor:
+        enable: true # 是否开启采集线程池运行时数据
+        collect-interval: 5000 # 采集线程池运行数据频率
+        collect-types: server,micrometer # 采集线程池运行数据的类型。eg：server、micrometer。多个可以同时使用，默认 server
+        initial-delay: 10000 # 项目启动后延迟多久进行采集
+        thread-pool-types: dynamic # 采集线程池的类型。eg：dynamic、web、adapter。可任意配置，默认 dynamic
+      # 服务端地址
+      server-addr: http://192.168.1.107:6691
+      # 用户名
+      username: admin
+      # 密码
+      password: 123456
+      # 租户 id, 对应 tenant 表
+      namespace: spider
+      # 项目 id, 对应 item 表
+      item-id: ${spring.application.name}
+
+management:
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: '*' # 测试使用，开启了所有端点，生产环境不建议 *
